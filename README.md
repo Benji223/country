@@ -25,4 +25,8 @@ node-cron: A library for scheduling tasks in Node.js.
 node-telegram-bot-api: A library for interacting with the Telegram messaging platform.
 License
 
+<<<<<<< HEAD
 This project is licensed under the MIT License. See the LICENSE file for details.
+=======
+This project is licensed under the MIT License. See the LICENSE file for details.
+>>>>>>> f1cf3a6ad67cb9cbf10bcb13ba15a5143e45dc86

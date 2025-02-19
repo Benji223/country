@@ -4,9 +4,14 @@
   "main": "dist/index.mjs",
   "type": "module",
   "scripts": {
+<<<<<<< HEAD
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node dist/index.mjs",
     "build": "node dist/index.mjs"
+=======
+    "start": "node index.mjs", 
+    "test": "echo \"Error: no test specified\" && exit 1"
+>>>>>>> f1cf3a6ad67cb9cbf10bcb13ba15a5143e45dc86
   },
   "keywords": [],
   "author": "",
