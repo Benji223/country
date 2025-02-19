@@ -30,7 +30,7 @@ const mainKeyboard = {
 
 const users = {};
 
-const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday' ];
 
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
@@ -77,7 +77,6 @@ bot.on('message', (msg) => {
       if (/^\d{2}:\d{2}$/.test(text)) {
         users[chatId].hours = text;
         users[chatId].state = 'awaiting_dayOfBooking';
-        // bot.sendMessage(chatId, `Great! Now enter the day you want to book (e.g., Wednesday = 3):`);
         const keyboard = {
           keyboard: dayNames.map((day, index) => [`${index + 1}. ${day}`]),
           resize_keyboard: true,
@@ -89,10 +88,27 @@ bot.on('message', (msg) => {
       }
       break;
 
+      // case 'awaiting_hours':
+      // if (/^\d{2}:\d{2}$/.test(text)) {
+      //   users[chatId].hours = text;
+      //   users[chatId].state = 'confirming';
+      //   bot.sendMessage(chatId, `You want to book for the ${users[chatId].day} at ${users[chatId].hours}. Is this correct?`, {
+      //           reply_markup: JSON.stringify({
+      //             keyboard: [['✅ Yes', '❌ No']],
+      //             resize_keyboard: true,
+      //             one_time_keyboard: true
+      //           })
+      //         });
+      //   bot.sendMessage(chatId, 'Great! Now select the day of the week:', { reply_markup: JSON.stringify(keyboard) });
+      // } else {
+      //   bot.sendMessage(chatId, 'Please enter a valid time in the format HH:MM.');
+      // }
+      // break;
+
     case 'awaiting_dayOfBooking':
       const dayIndex = parseInt(text.split('.')[0]) - 1;
       if (dayIndex >= 0 && dayIndex < 7) {
-        users[chatId].weekDay = dayIndex + 1;
+        users[chatId].weekDay = dayIndex ;
         users[chatId].state = 'confirming';
         const dayName = dayNames[dayIndex];
         bot.sendMessage(chatId, `You want to book on ${dayName} for the ${users[chatId].day} at ${users[chatId].hours}. Is this correct?`, {
@@ -134,14 +150,17 @@ bot.on('message', (msg) => {
 ////////////// BOOK //////////////
 
 async function multiStageLogin( email, password, bookingData, chatId) {
-  bot.sendMessage(chatId, `Booking for day ${bookingData.day} at ${bookingData.hours} on ${bookingData.weekDay}`);
-  console.log(`Booking for day ${bookingData.day} at ${bookingData.hours} on ${bookingData.weekDay}`);
+  bot.sendMessage(chatId, `Booking for the ${bookingData.day} at ${bookingData.hours} on ${bookingData.weekDay}th day of the week`);
   bot.sendMessage(chatId, 'booking will be processed at the right time');
-  cron.schedule(`0 0 * * ${bookingData.weekDay}`, async () => {
+
+  // minutes hours * * weekday
+  cron.schedule(`00 00 * * ${bookingData.weekDay} ` , async () => {
     bot.sendMessage(chatId,'Starting login process...');
 
     const browser = await puppeteer.launch({
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
       // headless: false,
+      // slowMo: 20,
     });
 
     const page = await browser.newPage();
@@ -177,13 +196,16 @@ async function multiStageLogin( email, password, bookingData, chatId) {
         page.click('a[href="/membre/reservation.html"]'),
         page.waitForNavigation({ waitUntil: 'networkidle2' })
       ]);
+      bot.sendMessage(chatId,'Navigating to booking page...');
 
       await page.select('#sport', '778');
+      bot.sendMessage(chatId,' tennis selected');
 
       ////////// TABLEAU //////////
 
       await page.waitForSelector('.datepicker', { visible: true });
       await page.type('.datepicker', '');
+      bot.sendMessage(chatId,'calendar selected');
 
 
       ////////// DAY //////////
@@ -200,11 +222,33 @@ async function multiStageLogin( email, password, bookingData, chatId) {
         }
       } ,bookingData);
 
+      const dayFound = await page.evaluate((bookingData) => {
+        let date = bookingData.day;
+        const day = document.querySelector(`[data-date="${date}"]`);
+        if (day) {
+          day.click();
+          return true;
+        } else {
+          return false;
+        }
+      }, bookingData);
+
+      if (!dayFound) {
+        bot.sendMessage(chatId, `Day not found: ${bookingData.day}`);
+        throw new Error(`Day not found: ${bookingData.day}`);
+      }
+
+      bot.sendMessage(chatId,`Day ${bookingData.day} selected`);
+
       /////////// SELECT HOURS //////////
 
       await page.waitForSelector('#heure', { visible: true });
       await page.click('#heure');
+      // await new Promise(resolve => setTimeout(resolve, 1000));
       await page.select('#heure', bookingData.hours);
+      await page.click('#heure');
+
+      bot.sendMessage(chatId,`Booking at ${bookingData.hours} .....`);
 
 
       /////////// SELECT COURT //////////
@@ -213,7 +257,7 @@ async function multiStageLogin( email, password, bookingData, chatId) {
       
       const courtId = await page.evaluate((bookingData) => {
         const hours = bookingData.hours;
-        bot.sendMessage(chatId,`Searching for hours: ${hours}`);
+        // bot.sendMessage(chatId,`Searching for hours: ${hours}`);
       
         const courts = [
           { element: document.querySelector('[data-idcourt="2049"]'), id: "2049" },
@@ -241,7 +285,7 @@ async function multiStageLogin( email, password, bookingData, chatId) {
           }
         }
       
-        bot.sendMessage(chatId,'No matching court hours found');
+        // bot.sendMessage(chatId,'No matching court hours found');
         return null;
       }, bookingData);
       
@@ -255,18 +299,27 @@ async function multiStageLogin( email, password, bookingData, chatId) {
       
       await page.click(`#appCapsule > div.section.full.mt-2.mb-2.resaForm > form > div.row.pb-1.pt-2.group_court.insertContentCourt > div.bloccourt.court_${courtId}.col-md-4.col-sm-6.col-12.mb-2 > div > div > div.form-row > div > div.bloc_duree.hide.col-md-12 > div > button`)
 
+      bot.sendMessage(chatId,'Booking processing...');
+
       /////////// CONFIRM BOOKING //////////
 
       await page.waitForSelector('#btn_paiement_free_resa', { visible: true }, { timeout: 10000 });
 
-      await page.evaluate(() => {
-        const submitButton =document.querySelector('#btn_paiement_free_resa');
+      const buttonClicked = await page.evaluate(() => {
+        const submitButton = document.querySelector('#btn_paiement_free_resa');
         if (submitButton) {
           submitButton.click();
+          return true;
         } else {
-          error('button not found');
+          return false;
         }
-      } );
+      });
+
+      if (!buttonClicked) {
+        throw new Error('Submit button not found');
+      }
+
+      bot.sendMessage(chatId,'Booking successful!');
   
     } catch (error) {
       bot.sendMessage(chatId,'Booking failed:', error);

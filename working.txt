@@ -1,0 +1,144 @@
+async function multiStageLogin(url, email, password, bookingData) {
+  // cron.schedule(`0 0 * * ${bookingData.day}`, async () => {
+    console.log('Starting login process...');
+
+    const browser = await puppeteer.launch({
+      headless: false,
+      // slowMo: 50,
+    });
+
+    const page = await browser.newPage();
+
+    try {
+      console.log(`Navigating to ${url}`);
+      await page.goto(url, { waitUntil: 'networkidle2' });
+
+      await page.waitForSelector('input[name=email]', { visible: true });
+
+      await page.type('input[name=email]', email, { delay: 30 });
+      await page.click('.contact100-form-btn');
+
+      await page.waitForSelector('input[name=pass]', { visible: true });
+      await page.type('input[name=pass]', password, { delay: 30 });
+      
+      await Promise.all([
+        // <button class="contact100-form-btn step-2_co show-partner" type="submit"> Se connecter</button>
+        page.click('button.contact100-form-btn.step-2_co.show-partner'),
+        page.waitForNavigation({ waitUntil: 'networkidle0' })
+      ]);
+
+      const loggedInText = await page.evaluate(() => document.body.innerText);
+      if (loggedInText.includes('Bonjour Benjamin') ) {
+        console.log('Login successful!');
+      } else {
+        throw new Error('Login failed');
+      }
+
+      //////////// BOOKING COURT //////////
+
+      await Promise.all([
+        page.click('a[href="/membre/reservation.html"]'),
+        page.waitForNavigation({ waitUntil: 'networkidle2' })
+      ]);
+
+      await page.select('#sport', '778');
+
+      ////////// TABLEAU //////////
+
+      await page.waitForSelector('.datepicker', { visible: true });
+      await page.type('.datepicker', '');
+
+
+      ////////// DAY //////////
+
+      await page.waitForSelector('#ui-datepicker-div > table > tbody ', { visible: true });
+
+      await page.evaluate((bookingData) => {
+        let date = bookingData.day;
+        const day = document.querySelector(`[data-date="${date}"]`);
+        if (day) {
+          day.click();
+        } else {
+          throw new Error(`Day not found: ${date}`);
+        }
+      } ,bookingData);
+
+      /////////// SELECT HOURS //////////
+
+      await page.waitForSelector('#heure', { visible: true });
+      await page.click('#heure');
+      await page.select('#heure', bookingData.hours);
+
+
+      /////////// SELECT COURT //////////
+
+      await page.waitForSelector('#appCapsule > div.section.full.mt-2.mb-2.resaForm > form > div.row.pb-1.pt-2.group_court.insertContentCourt', { visible: true });
+      
+      const courtId = await page.evaluate((bookingData) => {
+        const hours = bookingData.hours;
+        console.log(`Searching for hours: ${hours}`);
+      
+        const courts = [
+          { element: document.querySelector('[data-idcourt="2049"]'), id: "2049" },
+          { element: document.querySelector('[data-idcourt="2051"]'), id: "2051" },
+          { element: document.querySelector('[data-idcourt="2052"]'), id: "2052" }
+        ];
+      
+        for (const court of courts) {
+          console.log(`Checking court ${court.id}`);
+          if (!court.element) {
+            console.log(`Court ${court.id} element not found`);
+            continue;
+          }
+      
+          const buttons = Array.from(court.element.querySelectorAll('button'));
+          console.log(`Found ${buttons.length} buttons in court ${court.id}`);
+      
+          const button = buttons.find(btn => {
+            const btnText = btn.innerText.trim();
+            console.log(`Button text: "${btnText}"`);
+            return btnText === hours;
+          });
+      
+          if (button) {
+            console.log(`Matching button found in court ${court.id}`);
+            button.click();
+            return court.id;
+          }
+        }
+      
+        console.log('No matching court hours found');
+        return null;
+      }, bookingData);
+      
+      console.log(`Selected court ID: ${courtId}`);
+
+      /////////// SUBMIT BOOKING //////////
+
+      await page.waitForSelector(`#appCapsule > div.section.full.mt-2.mb-2.resaForm > form > div.row.pb-1.pt-2.group_court.insertContentCourt > div.bloccourt.court_${courtId}.col-md-4.col-sm-6.col-12.mb-2 > div > div > div.form-row > div > div.bloc_duree.hide.col-md-12 > div > button`, {visible: true});
+      
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      await page.click(`#appCapsule > div.section.full.mt-2.mb-2.resaForm > form > div.row.pb-1.pt-2.group_court.insertContentCourt > div.bloccourt.court_${courtId}.col-md-4.col-sm-6.col-12.mb-2 > div > div > div.form-row > div > div.bloc_duree.hide.col-md-12 > div > button`)
+
+      /////////// CONFIRM BOOKING //////////
+
+      await page.waitForSelector('#btn_paiement_free_resa', { visible: true }, { timeout: 10000 });
+
+      await page.evaluate(() => {
+        const submitButton =document.querySelector('#btn_paiement_free_resa');
+        if (submitButton) {
+          submitButton.click();
+        } else {
+          console.log('button not found');
+        }
+      } );
+  
+    } catch (error) {
+      console.error('Booking failed:', error);
+      await page.screenshot({ path: 'booking_failure.png' });
+    } finally {
+      await browser.close();
+    }
+// });
+}
